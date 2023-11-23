@@ -1,286 +1,156 @@
 import SwiftUI
-import CryptoKit
 
-struct User: Identifiable {
-    var id = UUID()
-    var username: String
-    var pincode: String
-    var profileImage: Image?
+// Structure to represent Pokemon data
+struct PokemonData: Decodable {
+    let name: String
+    let height: Int
+    let weight: Int
+    // Add more properties as needed
 }
 
+// Vue principale de l'application
 struct ContentView: View {
+    @StateObject var userManager = UserManager()
+    @State private var isAddUserSheetPresented = false
+    @StateObject var productManager = ProductManager()
+    @State private var isAddProductSheetPresented = false
+    @State private var selectedTab = 0
+    @State private var pokemonName: String = ""
+    @State private var pokemonData: PokemonData?
+
+    // Body of the view
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             NavigationView {
-                DashboardView()
+                List(userManager.users) { user in
+                    UserCardView(user: user, userManager: userManager, selectedTab: $selectedTab)
+                }
+            }
+            .onAppear {
+                checkSelectedTab(tabSelection: $selectedTab)
             }
             .tabItem {
                 Label("Dashboard", systemImage: "chart.bar.fill")
             }
-            UserView()
-            .tabItem {
-                Label("Users", systemImage: "person.fill")
-            }
+            .tag(0)
 
             NavigationView {
-                ProductView()
+                List(userManager.users) { user in
+                    UserCardView(user: user, userManager: userManager, selectedTab: $selectedTab)
+                }
+                .navigationBarTitle("Utilisateurs")
+                .navigationBarItems(trailing:
+                    Button(action: {
+                        isAddUserSheetPresented.toggle()
+                    }) {
+                        Label("Ajouter un utilisateur", systemImage: "person.badge.plus.fill")
+                    }
+                )
+            }
+            .onAppear {
+                checkSelectedTab(tabSelection: $selectedTab)
             }
             .tabItem {
-                Label("Products", systemImage: "bag.fill")
+                Label("Utilisateurs", systemImage: "person.fill")
             }
+            .tag(1)
+            
+            NavigationView {
+                List(productManager.products) { product in
+                    ProductCardView(product: product, productManager: productManager)
+                }
+                .navigationBarTitle("Produits")
+                .navigationBarItems(trailing:
+                    Button(action: {
+                        isAddProductSheetPresented.toggle()
+                    }) {
+                        Label("Ajouter un produit", systemImage: "bag.fill.badge.plus")
+                    }
+                )
+            }
+            .onAppear {
+                checkSelectedTab(tabSelection: $selectedTab)
+            }
+            .tabItem {
+                Label("Produits", systemImage: "bag.fill")
+            }
+            .tag(2)
 
             NavigationView {
-                AdminView()
+                VStack {
+                    TextField("Enter Pokemon Name", text: $pokemonName)
+                        .textFieldStyle(RoundedBorderTextFieldStyle())
+                        .padding()
+
+                    Button(action: {
+                        fetchPokemonData()
+                    }) {
+                        Text("Fetch Pokemon Data")
+                            .padding()
+                            .frame(maxWidth: .infinity)
+                            .background(Color(.systemMint))
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                    }
+                    .padding()
+
+                    if let pokemonData = pokemonData {
+                        // Display the fetched data here as needed
+                        Text("Pokemon Name: \(pokemonData.name)")
+                        Text("Height: \(pokemonData.height)")
+                        Text("Weight: \(pokemonData.weight)")
+                        // Add more details as needed
+                    } else {
+                        // Display a message when no data is fetched yet
+                        Text("No data fetched")
+                    }
+                }
+                .navigationBarTitle("Gérer")
+            }
+            .onAppear {
+                checkSelectedTab(tabSelection: $selectedTab)
             }
             .tabItem {
-                Label("Manage", systemImage: "gearshape.fill")
+                Label("Gérer", systemImage: "gearshape.fill")
             }
+            .tag(3)
         }
         .accentColor(Color(.systemMint))
         .background(Rectangle().fill(Color(.systemBackground)).shadow(radius: 2))
+        .sheet(isPresented: $isAddUserSheetPresented) {
+            AddUserView(userManager: userManager, isPresented: $isAddUserSheetPresented)
+        }
+        .sheet(isPresented: $isAddProductSheetPresented) {
+            AddProductView(productManager: productManager, isPresented: $isAddProductSheetPresented)
+        }
+    }
+
+    // Function to fetch Pokemon data
+    func fetchPokemonData() {
+        guard let url = URL(string: "https://pokeapi.co/api/v2/pokemon/\(pokemonName.lowercased())") else {
+            print("Invalid URL")
+            return
+        }
+
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            if let data = data {
+                do {
+                    let decoder = JSONDecoder()
+                    let decodedData = try decoder.decode(PokemonData.self, from: data)
+                    DispatchQueue.main.async {
+                        self.pokemonData = decodedData
+                    }
+                } catch {
+                    print("Error decoding JSON: \(error)")
+                }
+            }
+        }.resume()
     }
 }
 
+// Structure de Prévisualisation pour ContentView
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
         ContentView()
-    }
-}
-
-struct UserView: View {
-    @State private var isAddUserSheetPresented = false
-    @State private var users: [User] = []
-
-    var body: some View {
-        NavigationView {
-            VStack {
-                Button("Add User") {
-                    isAddUserSheetPresented.toggle()
-                }
-                List(users) { user in
-                    UserCardView(user: user)
-                }
-            }
-            .sheet(isPresented: $isAddUserSheetPresented) {
-                AddUserView(users: $users, isPresented: $isAddUserSheetPresented)
-            }
-            .navigationBarTitle("Users")
-        }
-    }
-}
-
-struct AddUserView: View {
-    @Binding var users: [User]
-    @Binding var isPresented: Bool
-    @State private var username = ""
-    @State private var pincode = ""
-    @State private var encryptedPincode = ""
-    @State private var selectedImage: Image?
-    @State private var isImagePickerPresented = false
-    @State private var selectedUIImage: UIImage?
-    @State private var showAlert = false
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("User Information")) {
-                    TextField("Username", text: $username)
-                    SecureField("Pincode", text: $pincode)
-                }
-
-                Section(header: Text("Profile Image")) {
-                    if let selectedImage = selectedImage {
-                        Image(uiImage: selectedUIImage ?? UIImage())
-                            .resizable()
-                            .scaledToFit()
-                            .clipShape(Circle())
-                            .frame(width: 100, height: 100)
-                            .onTapGesture {
-                                isImagePickerPresented.toggle()
-                            }
-                    } else {
-                        Button("Select Image") {
-                            isImagePickerPresented.toggle()
-                        }
-                    }
-                }
-
-                Section {
-                    Button("Save") {
-                        if !username.isEmpty && !pincode.isEmpty {
-                            // Encrypt the pincode before saving
-                            encryptedPincode = encrypt(pincode)
-                            let newUser = User(username: username, pincode: encryptedPincode, profileImage: selectedImage)
-                            users.append(newUser)
-                            username = ""
-                            pincode = ""
-                            encryptedPincode = ""
-                            selectedImage = nil
-                            isImagePickerPresented = false
-                            isPresented.toggle()
-                        } else {
-                            showAlert = true
-                        }
-                    }
-                    .alert(isPresented: $showAlert) {
-                        Alert(title: Text("Incomplete Fields"), message: Text("Please fill in all required fields."), dismissButton: .default(Text("OK")))
-                    }
-                }
-            }
-            .sheet(isPresented: $isImagePickerPresented, onDismiss: {
-                if let selectedImage = selectedUIImage {
-                    self.selectedImage = Image(uiImage: selectedImage)
-                }
-            }) {
-                ImagePicker(selectedImage: $selectedUIImage)
-            }
-            .navigationTitle("Add User")
-        }
-    }
-
-    // Encryption function using CryptoKit
-    private func encrypt(_ plaintext: String) -> String {
-        let data = Data(plaintext.utf8)
-        do {
-            let key = SymmetricKey(size: .bits256) // Example key size, choose an appropriate size for your use case
-            let sealedBox = try AES.GCM.seal(data, using: key)
-            return Data(sealedBox.ciphertext).base64EncodedString()
-        } catch {
-            print("Encryption error: \(error)")
-            return ""
-        }
-    }
-}
-
-struct UserCardView: View {
-    @State private var isEditUserSheetPresented = false
-
-    var user: User
-
-    var body: some View {
-        VStack {
-            if let profileImage = user.profileImage {
-                profileImage
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(Circle())
-                    .frame(width: 100, height: 100)
-            }
-
-            Text(user.username)
-            Text(user.pincode)
-
-            HStack {
-                // Hidden NavigationLink to trigger the sheet
-                NavigationLink(
-                    destination: EditUserView(user: user),
-                    isActive: $isEditUserSheetPresented,
-                    label: {
-                    })
-                    .hidden()
-
-                // Edit Button
-                Button(action: {
-                    isEditUserSheetPresented.toggle()
-                }) {
-                }
-            }
-        }
-        .padding()
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color(.systemBackground)).shadow(radius: 2))
-        .padding(.horizontal)
-    }
-}
-
-
-
-struct EditUserView: View {
-    @State private var editedUsername: String
-    @State private var editedPincode: String
-
-    var user: User
-
-    init(user: User) {
-        self.user = user
-        _editedUsername = State(initialValue: user.username)
-        _editedPincode = State(initialValue: user.pincode)
-    }
-
-    var body: some View {
-        Form {
-            Section(header: Text("User Information")) {
-                TextField("Username", text: $editedUsername)
-                SecureField("Pincode", text: $editedPincode)
-            }
-
-            // Additional sections for other user data if needed
-
-            Section {
-                Button("Save Changes") {
-                    // Handle saving the edited user data
-                    // Update the user in the main users array
-                    // Dismiss the sheet
-                }
-            }
-        }
-        .navigationTitle("Edit User")
-    }
-}
-
-
-struct ImagePicker: UIViewControllerRepresentable {
-    @Binding var selectedImage: UIImage?
-
-    class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
-        let parent: ImagePicker
-
-        init(parent: ImagePicker) {
-            self.parent = parent
-        }
-
-        func imagePickerController(
-            _ picker: UIImagePickerController,
-            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-        ) {
-            if let uiImage = info[.originalImage] as? UIImage {
-                parent.selectedImage = uiImage
-            }
-
-            picker.dismiss(animated: true)
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            picker.dismiss(animated: true)
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        return Coordinator(parent: self)
-    }
-
-    func makeUIViewController(context: Context) -> UIViewController {
-        let controller = UIImagePickerController()
-        controller.delegate = context.coordinator
-        return controller
-    }
-
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
-}
-
-struct DashboardView: View {
-    var body: some View {
-        Text("Dashboard")
-    }
-}
-
-struct ProductView: View {
-    var body: some View {
-        Text("Product")
-    }
-}
-
-struct AdminView: View {
-    var body: some View {
-        Text("Admin")
     }
 }
